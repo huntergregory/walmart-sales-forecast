@@ -31,11 +31,14 @@ TODO
 
 ## CONSTANTS
 TESTING = True
-PREDS_SAVE_FILE = "model-runs/test_forecasts.csv" ### UPDATE!!!!
+PREDS_SAVE_FILE = "model-runs/test-forecasts.csv" ### UPDATE!!!!
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
 RNN_UNITS = 128
+GLOBAL_OUTPUT_SIZE = TIME_AGNOSTIC_CONTEXT_SIZE + HORIZON_LENGTH * TEMPORAL_CONTEXT_SIZE
+GLOBAL_DECODER_SHAPES = (64, GLOBAL_OUTPUT_SIZE)
+LOCAL_DECODER_SHAPES = (64, len(QUANTILES))
 
 EPOCHS = 2 if TESTING else 20
 BATCH_SIZE = 32
@@ -95,10 +98,9 @@ rnn_model = LSTM(RNN_UNITS, return_sequences=True, kernel_initializer=GlorotUnif
 full_rnn_outputs = rnn_model(_input_series) # output shape: (batch_size, timesteps, units)
 # TODO? pass state to MLP decoders? make stateful=True for the rnn_model
 
-global_output_size = TIME_AGNOSTIC_CONTEXT_SIZE + HORIZON_LENGTH * TEMPORAL_CONTEXT_SIZE
 MLP.set_next_seed(3)
-global_decoder = MLP(layer_shapes=(64, global_output_size), name='global_decoder')
-local_decoder = MLP(layer_shapes=(64, len(QUANTILES)), name='local_decoder') 
+global_decoder = MLP(layer_shapes=GLOBAL_DECODER_SHAPES, name='global_decoder')
+local_decoder = MLP(layer_shapes=LOCAL_DECODER_SHAPES, name='local_decoder') 
 # TODO? Dropout(0.15)(final)
 
 all_global_decodings = global_decoder(full_rnn_outputs)
@@ -150,10 +152,10 @@ print('all done')
 
 np.savetxt(PREDS_SAVE_FILE, np.reshape(test_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
 
-# loaded_test_forecasts = np.loadtxt(PREDS_SAVE_FILE, delimiter=',')
-# loaded_test_forecasts = np.reshape(loaded_test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
+loaded_test_forecasts = np.loadtxt(PREDS_SAVE_FILE, delimiter=',')
+loaded_test_forecasts = np.reshape(loaded_test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
 
-# print(np.all(loaded_test_forecasts == np.reshape(test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))))
+print(np.all(loaded_test_forecasts == np.reshape(test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))))
 
 print('ok')
 
