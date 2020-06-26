@@ -15,9 +15,10 @@ for k in tqdm(range(len(sell_prices_df))):
     if curr_id == prev_id:
         continue
     if not start:
-        item_sell_price_indices[prev_id][1] = k-1
-    item_sell_price_indices[curr_id] = [k, len(sell_prices_df) - 1]
+        item_sell_price_indices[prev_id][1] = k
+    item_sell_price_indices[curr_id] = [k, len(sell_prices_df)]
     prev_id = curr_id
+    start = False
 
 with open(SELL_PRICE_INDICES_FILE, 'wb') as file:
     pickle.dump(item_sell_price_indices, file, protocol=pickle.HIGHEST_PROTOCOL)
