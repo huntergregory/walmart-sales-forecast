@@ -9,8 +9,9 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Concatenate, Dense, Dropout, Input, Lambda, LSTM
 from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
+from tensorflow.keras.callbacks import EarlyStopping
 
-from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE
+from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, SALES_DATA_PATH, CALENDAR_DATA_PATH
 
 from mlp import MLP
 from pinball import pinball, PinballMetric
@@ -30,13 +31,12 @@ TODO
 
 ## CONSTANTS
 TESTING = True
-SALES_DATA_PATH = './data/sales_train_validation.csv'
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
 RNN_UNITS = 128
 
-EPOCHS = 2 if TESTING else 30
+EPOCHS = 2 if TESTING else 20
 BATCH_SIZE = 32
 VAL_SPLIT = 0.2
 FIT_VERBOSITY = 2
@@ -45,41 +45,42 @@ NUM_OBSERVATIONS = 64 # for testing
 
 ## LOAD DATA
 sales_df = pd.read_csv(SALES_DATA_PATH)
-train_sales_columns = sales_df.columns[6:]
-x_train = sales_df.loc[:, train_sales_columns].to_numpy()
-# TODO add price info per day (based on wm_yr_wk)
+if TESTING: 
+    sales_df = sales_df.iloc[0:NUM_OBSERVATIONS]
 
 features = sales_df.loc[:,['dept_id', 'store_id']]
 encoder = OneHotEncoder(categories='auto', drop='first', sparse=False)
 one_hot_features = encoder.fit_transform(features)
 
+train_sales_columns = sales_df.columns[6:]
+item_store_ids = [(row.item_id, row.store_id) for _, row in sales_df.iterrows()]
+x_train = sales_df.loc[:, train_sales_columns].to_numpy()
+
 # DATA DEPENDENT CONSTANTS
 assert(MAX_SERIES_LENGTH == len(sales_df.columns) - 6)
 NUM_STATIC_FEATURES = one_hot_features.shape[1]
 NUM_DAY_LABELS = 6
-calendar_map = {"National": 2, "Religious": 3, "Cultural": 4, "Sporting": 5} # NaN is 0, Xmas is 1
+calendar_map = {'National': 2, 'Religious': 3, 'Cultural': 4, 'Sporting': 5} # NaN is 0, Xmas is 1
 TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # eventually add price
 # MQ-RNN has static features in each time step
 
-calendar = pd.read_csv("./data/calendar.csv")
+calendar = pd.read_csv(CALENDAR_DATA_PATH)
 binary_day_labels = np.zeros((len(calendar), NUM_DAY_LABELS))
 for k in range(len(calendar)):
     day = calendar.iloc[k]
     if day.event_name_1 is np.nan:
         binary_day_labels[k][0] = 1
     else:
-        if day.event_name_1 == "Christmas":
+        if day.event_name_1 == 'Christmas':
             binary_day_labels[k][1] = 1
         else:
             binary_day_labels[k][calendar_map[day.event_type_1]] = 1
-        if day.event_name_2 == "Christmas":
+        if day.event_name_2 == 'Christmas':
             binary_day_labels[k][1] = 1
         elif day.event_name_2 is not np.nan:
             binary_day_labels[k][calendar_map[day.event_type_2]] = 1
 
-if TESTING: 
-    x_train = x_train[0:NUM_OBSERVATIONS]
-    one_hot_features = one_hot_features[0:NUM_OBSERVATIONS, :]
+data_sequence = TimeSeriesSequence(x_train, item_store_ids, one_hot_features, binary_day_labels, BATCH_SIZE)
 
 ## MODEL
 K.clear_session()
@@ -130,17 +131,16 @@ quantile_forecasts = Lambda(lambda x: x, name='quantile_forecasts')(quantile_for
 
 model = Model(inputs=[_input_series, _input_pred_features], outputs=[quantile_forecasts, train_forecasts])
 model.compile(loss={'train_forecasts': pinball}, 
-              optimizer='adam', 
-              metrics={'train_forecasts': PinballMetric()})
+              optimizer='adam',)
+              #metrics={'train_forecasts': PinballMetric()})
 model.summary(positions=[50, 110, 120, 170])
 # with open('model-summary.txt', 'w') as file:
     # model.summary(print_fn=lambda x: file.write(x + '\n'))
 
 ## TRAIN
-data_sequence = TimeSeriesSequence(x_train, one_hot_features, binary_day_labels, BATCH_SIZE)
-history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY) #TODO validation set
-                    # callbacks=[free_memory()]
-                                #EarlyStopping('val_f1_macro', patience=7, mode='max', restore_best_weights=False),
+history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY,
+                    callbacks=[EarlyStopping(monitor='loss', patience=3, restore_best_weights=True)])  #TODO validation set
+                    # free_memory()])
 
 print('done')
 
@@ -164,4 +164,4 @@ print('ok')
 #                             optimizer='adam',  metrics=[F1Macro(), 'accuracy'], loss_weights = [1, 1/p])
 
 # def print_MB(array):
-#     print("{} MB".format(array.size * array.itemsize / 1024 / 1024))
+#     print('{} MB'.format(array.size * array.itemsize / 1024 / 1024))
