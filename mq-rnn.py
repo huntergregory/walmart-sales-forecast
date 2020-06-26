@@ -31,6 +31,7 @@ TODO
 
 ## CONSTANTS
 TESTING = True
+PREDS_SAVE_FILE = "model-runs/test_forecasts.csv" ### UPDATE!!!!
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
@@ -147,12 +148,12 @@ print('done')
 test_forecasts, training_forecasts = model.predict(data_sequence, batch_size=BATCH_SIZE, verbose=PREDICT_VERBOSITY)
 print('all done')
 
-np.savetxt('test_forecasts.csv', np.reshape(test_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
+np.savetxt(PREDS_SAVE_FILE, np.reshape(test_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
 
-loaded_test_forecasts = np.loadtxt('test_forecasts.csv', delimiter=',')
-loaded_test_forecasts = np.reshape(loaded_test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
+# loaded_test_forecasts = np.loadtxt(PREDS_SAVE_FILE, delimiter=',')
+# loaded_test_forecasts = np.reshape(loaded_test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
 
-print(np.all(loaded_test_forecasts == np.reshape(test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))))
+# print(np.all(loaded_test_forecasts == np.reshape(test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))))
 
 print('ok')
 
