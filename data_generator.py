@@ -83,7 +83,7 @@ class TimeSeriesSequence(Sequence):
         # pred_features = []
         # y_batch = []
         y_batch = np.zeros((actual_size, LOSS_SIZE, HORIZON_LENGTH, len(QUANTILES)))
-        pred_features = np.zeros((actual_size, MAX_SERIES_LENGTH+1, HORIZON_LENGTH, features.shape[-1]))
+        pred_features = np.zeros((actual_size, MAX_SERIES_LENGTH, HORIZON_LENGTH, features.shape[-1]))
         for i in range(actual_size):
             feature_series = features[i]
             # preds = []
@@ -103,10 +103,10 @@ class TimeSeriesSequence(Sequence):
                 #     expanded_time_series.append(expanded_sublist)
 
                 for k in range(HORIZON_LENGTH):
-                    pred_features[i,j,k,:] = feature_series[j+k]
+                    pred_features[i,j-1,k,:] = feature_series[j+k]
                     # preds_sublist.append(feature_series[j+k])
                     if should_expand:
-                        y_batch[i,j,k,:] = time_series[j+k]
+                        y_batch[i,j-1,k,:] = time_series[j+k]
                         # expanded_sublist.append(len(QUANTILES) * [time_series[j+k]])
         # pred_features = np.array(pred_features)
         # y_batch = np.array(y_batch)
