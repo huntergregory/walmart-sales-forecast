@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 import pickle
 import math
-from time import time
-import tensorflow
 from tensorflow.keras.utils import Sequence
 
 from constants import LOSS_SIZE, QUANTILES, HORIZON_LENGTH, MAX_SERIES_LENGTH, SELL_PRICES_DATA_PATH, FIRST_DAY_FILE, SELL_PRICE_INDICES_FILE, FIRST_WEEK
@@ -19,7 +17,7 @@ sell_price_df = pd.read_csv(SELL_PRICES_DATA_PATH)
 
 ## CURRENTLY 18.2 / 2
 ## 2nd optimization: 15.1 / 2 (or 16.6, 15.4)
-## 3rd optimization: 8.8 / 2
+## 3rd optimization: 8.8 / 2 (or 9.5)
 
 class TimeSeriesSequence(Sequence):
     # time_series: (n, MAX_SERIES_LENGTH)
@@ -50,7 +48,6 @@ class TimeSeriesSequence(Sequence):
         tiled_static_features = np.tile(self.static_features[start:end], (1, MAX_SERIES_LENGTH + HORIZON_LENGTH, 1))
         tiled_day_labels = self.tiled_day_labels[:actual_size]
 
-        before1 = time()
         prices = np.zeros((actual_size, MAX_SERIES_LENGTH + HORIZON_LENGTH))
         for k in range(actual_size):
             first_sale_day = first_sale_days[k+idx*self.batch_size]
@@ -71,9 +68,6 @@ class TimeSeriesSequence(Sequence):
             prices[k,-1] = sell_prices.iloc[len(sell_prices)-1] # all weeks have 7 days except last (2 days)
         prices = np.reshape(prices, prices.shape + (1,))
 
-        after1 = time()
-        print(after1 - before1)
-
         features_concats = [
             prices[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)],
             tiled_day_labels[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)], 
@@ -88,9 +82,8 @@ class TimeSeriesSequence(Sequence):
 
         # pred_features = []
         # y_batch = []
-        y_batch = np.zeros((actual_size, LOSS_SIZE+1, HORIZON_LENGTH, len(QUANTILES)))
+        y_batch = np.zeros((actual_size, LOSS_SIZE, HORIZON_LENGTH, len(QUANTILES)))
         pred_features = np.zeros((actual_size, MAX_SERIES_LENGTH+1, HORIZON_LENGTH, features.shape[-1]))
-        before2 = time()
         for i in range(actual_size):
             feature_series = features[i]
             # preds = []
@@ -117,11 +110,8 @@ class TimeSeriesSequence(Sequence):
                         # expanded_sublist.append(len(QUANTILES) * [time_series[j+k]])
         # pred_features = np.array(pred_features)
         # y_batch = np.array(y_batch)
-        # now: 4, 4.1 
+        # now: 4, 4.1, 4.4, 4.5
         # with lists: 7.7, 7.1 
-
-        after2 = time()
-        print(after2 - before2)
 
         full_batch = ([x_batch, pred_features], {'train_forecasts': y_batch})
         if self.weights is None:
