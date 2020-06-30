@@ -155,7 +155,7 @@ history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY,
 
 print('done')
 
-# model.save(MODEL_SAVE_FILE)
+model.save(MODEL_SAVE_FILE)
 # loaded_model = tf.keras.models.load_model(MODEL_SAVE_FILE, compile=False)
 
 test_forecasts, _ = model.predict(data_sequence, verbose=PREDICT_VERBOSITY)
