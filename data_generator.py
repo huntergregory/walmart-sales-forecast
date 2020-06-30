@@ -33,9 +33,8 @@ class TimeSeriesSequence(Sequence):
     # static_features: (n, num_static_labels). One-hot encoded
     # day_labels: (MAX_SERIES_LENGTH + x, num_day_labels). Binary
     # weights: (n,). Leave as None for no sample weighting
-    def __init__(self, time_series, item_store_ids, static_features, day_labels, batch_size, use_weights=True):
+    def __init__(self, time_series, static_features, day_labels, batch_size, use_weights=True):
         self.time_series = time_series
-        self.item_store_ids = item_store_ids
         self.static_features = np.reshape(static_features, (static_features.shape[0], 1, static_features.shape[1]))
         self.batch_size = batch_size
         self.tiled_day_labels = np.tile(np.reshape(day_labels, (1,) + day_labels.shape), (self.batch_size, 1, 1))

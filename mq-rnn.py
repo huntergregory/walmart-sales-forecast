@@ -11,7 +11,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.callbacks import EarlyStopping
 
-from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, FULL_SALES_DATA_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH
+from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH
 
 from mlp import MLP
 from pinball import PinballLoss
@@ -51,7 +51,7 @@ NUM_OBSERVATIONS = 64 # for testing
 ## LOAD DATA
 FEATURES = ['department', 'category', 'store', 'state'] # 'item', 'department'
 
-sales_df = pd.read_csv(FULL_SALES_DATA_PATH)
+sales_df = pd.read_csv(AGGREGATE_EVALUATION_SALES_PATH)
 aggregate_features_df = pd.read_csv(ALL_FEATURES_DATA_PATH).loc[:, FEATURES]
 if TESTING: 
     sales_df = sales_df.iloc[0:NUM_OBSERVATIONS]
@@ -60,8 +60,7 @@ if TESTING:
 encoder = OneHotEncoder(categories='auto', drop='first', sparse=False)
 one_hot_features = encoder.fit_transform(aggregate_features_df)
 
-train_sales_columns = sales_df.columns[6:]
-item_store_ids = [(row.item_id, row.store_id) for _, row in sales_df.iterrows()]
+train_sales_columns = sales_df.columns[2:]
 x_train = sales_df.loc[:, train_sales_columns].to_numpy()
 
 # DATA DEPENDENT CONSTANTS
@@ -90,7 +89,7 @@ for k in range(len(calendar)):
 
 binary_day_labels = np.concatenate([binary_day_labels, np.array(calendar.loc[:, ['snap_CA', 'snap_TX', 'snap_WI']])], axis=-1)
 
-data_sequence = TimeSeriesSequence(x_train, item_store_ids, one_hot_features, binary_day_labels, BATCH_SIZE, use_weights=True)
+data_sequence = TimeSeriesSequence(x_train, one_hot_features, binary_day_labels, BATCH_SIZE, use_weights=True)
 
 
 
