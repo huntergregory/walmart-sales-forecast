@@ -11,10 +11,10 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
 from tensorflow.keras.callbacks import EarlyStopping
 
-from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, SALES_DATA_PATH, CALENDAR_DATA_PATH
+from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, FULL_SALES_DATA_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH
 
 from mlp import MLP
-from pinball import pinball, PinballMetric
+from pinball import PinballLoss
 from data_generator import TimeSeriesSequence
 
 """
@@ -30,8 +30,9 @@ TODO
 """
 
 ## CONSTANTS
-TESTING = True
-PREDS_SAVE_FILE = "model-runs/test-forecasts.csv" ### UPDATE!!!!
+TESTING = True # UPDATE!!!!
+PREDS_SAVE_FILE = "test-forecasts.csv" ### UPDATE!!!!
+MODEL_SAVE_FILE = 'models/model1' ### UPDATE!!!
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
@@ -40,7 +41,7 @@ GLOBAL_OUTPUT_SIZE = TIME_AGNOSTIC_CONTEXT_SIZE + HORIZON_LENGTH * TEMPORAL_CONT
 GLOBAL_DECODER_SHAPES = (64, GLOBAL_OUTPUT_SIZE)
 LOCAL_DECODER_SHAPES = (64, len(QUANTILES))
 
-EPOCHS = 2 if TESTING else 20
+EPOCHS = 1 if TESTING else 20
 BATCH_SIZE = 32
 VAL_SPLIT = 0.2
 FIT_VERBOSITY = 2
@@ -48,28 +49,31 @@ PREDICT_VERBOSITY = 1 if TESTING else 0
 NUM_OBSERVATIONS = 64 # for testing
 
 ## LOAD DATA
-sales_df = pd.read_csv(SALES_DATA_PATH)
+FEATURES = ['department', 'category', 'store', 'state'] # 'item', 'department'
+
+sales_df = pd.read_csv(FULL_SALES_DATA_PATH)
+aggregate_features_df = pd.read_csv(ALL_FEATURES_DATA_PATH).loc[:, FEATURES]
 if TESTING: 
     sales_df = sales_df.iloc[0:NUM_OBSERVATIONS]
+    aggregate_features_df = aggregate_features_df.iloc[0:NUM_OBSERVATIONS]
 
-features = sales_df.loc[:,['dept_id', 'store_id']]
 encoder = OneHotEncoder(categories='auto', drop='first', sparse=False)
-one_hot_features = encoder.fit_transform(features)
+one_hot_features = encoder.fit_transform(aggregate_features_df)
 
 train_sales_columns = sales_df.columns[6:]
 item_store_ids = [(row.item_id, row.store_id) for _, row in sales_df.iterrows()]
 x_train = sales_df.loc[:, train_sales_columns].to_numpy()
 
 # DATA DEPENDENT CONSTANTS
-assert(MAX_SERIES_LENGTH == len(sales_df.columns) - 6)
+# assert(MAX_SERIES_LENGTH == len(sales_df.columns) - 6)
 NUM_STATIC_FEATURES = one_hot_features.shape[1]
-NUM_DAY_LABELS = 6
+NUM_DAY_LABELS = 6 + 3 # includes snap days
 calendar_map = {'National': 2, 'Religious': 3, 'Cultural': 4, 'Sporting': 5} # NaN is 0, Xmas is 1
-TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # eventually add price
+TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # TODO add 1 for price 
 # MQ-RNN has static features in each time step
 
 calendar = pd.read_csv(CALENDAR_DATA_PATH)
-binary_day_labels = np.zeros((len(calendar), NUM_DAY_LABELS))
+binary_day_labels = np.zeros((len(calendar), NUM_DAY_LABELS-3))
 for k in range(len(calendar)):
     day = calendar.iloc[k]
     if day.event_name_1 is np.nan:
@@ -84,7 +88,11 @@ for k in range(len(calendar)):
         elif day.event_name_2 is not np.nan:
             binary_day_labels[k][calendar_map[day.event_type_2]] = 1
 
-data_sequence = TimeSeriesSequence(x_train, item_store_ids, one_hot_features, binary_day_labels, BATCH_SIZE)
+binary_day_labels = np.concatenate([binary_day_labels, np.array(calendar.loc[:, ['snap_CA', 'snap_TX', 'snap_WI']])], axis=-1)
+
+data_sequence = TimeSeriesSequence(x_train, item_store_ids, one_hot_features, binary_day_labels, BATCH_SIZE, use_weights=True)
+
+
 
 ## MODEL
 K.clear_session()
@@ -92,6 +100,7 @@ tf.random.set_seed(0)
 
 _input_series = Input(shape=(MAX_SERIES_LENGTH, TIME_OBSERVATION_DIMENSION), dtype=DTYPE, name='time_series')
 _input_pred_features = Input(shape=(MAX_SERIES_LENGTH, HORIZON_LENGTH, TIME_OBSERVATION_DIMENSION-1), dtype=DTYPE, name='predict_features')
+# _input_val_forecasts = Input(shape=(HORIZON_LENGTH, len(QUANTILES)), name='input_val_forecasts')
 # _input_eval_time_features = Input(shape=(HORIZON_LENGTH, TIME_OBSERVATION_DIMENSION-1), dtype=DTYPE, name='forecast_info') TODO INCLUDE
 
 rnn_model = LSTM(RNN_UNITS, return_sequences=True, kernel_initializer=GlorotUniform(seed=1), recurrent_initializer=Orthogonal(seed=2))
@@ -133,10 +142,10 @@ train_forecasts = Lambda(lambda x: x, name='train_forecasts')(train_forecasts)
 quantile_forecasts = Lambda(lambda x: x, name='quantile_forecasts')(quantile_forecasts)
 
 model = Model(inputs=[_input_series, _input_pred_features], outputs=[quantile_forecasts, train_forecasts])
-model.compile(loss={'train_forecasts': pinball}, 
+model.compile(loss={'train_forecasts': PinballLoss()}, 
               optimizer='adam',)
-              #metrics={'train_forecasts': PinballMetric()})
-model.summary(positions=[50, 110, 120, 170])
+            #   metrics={'train_forecasts': PinballMetric()})
+# model.summary(positions=[50, 110, 120, 170])
 # with open('model-summary.txt', 'w') as file:
     # model.summary(print_fn=lambda x: file.write(x + '\n'))
 
@@ -147,7 +156,10 @@ history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY,
 
 print('done')
 
-test_forecasts, training_forecasts = model.predict(data_sequence, batch_size=BATCH_SIZE, verbose=PREDICT_VERBOSITY)
+# model.save(MODEL_SAVE_FILE)
+# loaded_model = tf.keras.models.load_model(MODEL_SAVE_FILE, compile=False)
+
+test_forecasts, _ = model.predict(data_sequence, verbose=PREDICT_VERBOSITY)
 print('all done')
 
 np.savetxt(PREDS_SAVE_FILE, np.reshape(test_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')

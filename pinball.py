@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow_addons.utils.types import TensorLike, FloatTensorLike
 from constants import LOSS_SIZE, DTYPE, QUANTILES, HORIZON_LENGTH
 from tensorflow.keras.metrics import Metric
+from tensorflow.keras.losses import Loss, Reduction
 
 TAU = tf.expand_dims(tf.cast(QUANTILES, DTYPE), 0)
 
@@ -12,17 +13,24 @@ AVG_FORECASTS = True
 AVG_HORIZON_LENGTH = True
 AVG_QUANTILES = True
 
-def get_axes(avg_forecasts=False, avg_horizon_length=False, avg_quantiles=False):
-    divide_bys = [avg_forecasts, avg_horizon_length, avg_quantiles]
-    mean_axes = [k+1 for k in range(3) if divide_bys[k]]
-    sum_axes = [-(k+1) for k in range(3 - sum(divide_bys))]
-    return mean_axes, sum_axes
+# def get_axes(avg_forecasts=False, avg_horizon_length=False, avg_quantiles=False):
+#     divide_bys = [avg_forecasts, avg_horizon_length, avg_quantiles]
+#     mean_axes = [k+1 for k in range(3) if divide_bys[k]]
+#     sum_axes = [-(k+1) for k in range(3 - sum(divide_bys))]
+#     return mean_axes, sum_axes
 
-reduce_mean_axes, reduce_sum_axes = get_axes(AVG_FORECASTS,AVG_HORIZON_LENGTH, AVG_QUANTILES)
-should_reduce_mean = tf.convert_to_tensor(len(reduce_mean_axes) > 0)
-should_reduce_sum = tf.convert_to_tensor(len(reduce_sum_axes) > 0)
+# reduce_mean_axes, reduce_sum_axes = get_axes(AVG_FORECASTS,AVG_HORIZON_LENGTH, AVG_QUANTILES)
+# should_reduce_mean = tf.convert_to_tensor(len(reduce_mean_axes) > 0)
+# should_reduce_sum = tf.convert_to_tensor(len(reduce_sum_axes) > 0)
 
-def pinball(y_true, y_pred):
+class PinballLoss(Loss):
+    def __init__(self, name='pinball_loss'):
+        super().__init__(reduction=Reduction.SUM, name=name)
+
+    def call(self, y_true, y_pred):
+        return pinball(y_true, y_pred)
+
+def pinball(y_true, y_pred): # TODO apply weight 
     batch_size = tf.shape(y_true)[0]
     def modify(y):
         return tf.cast(y, DTYPE) # tf.reshape(tf.cast(y, DTYPE), (batch_size * LOSS_SIZE * HORIZON_LENGTH, len(QUANTILES)))
@@ -32,25 +40,35 @@ def pinball(y_true, y_pred):
     one = tf.cast(1, DTYPE)
     delta_y = y_true - y_pred
     result = tf.math.maximum(TAU * delta_y, (TAU - one) * delta_y)
-    result = tf.reshape(result, (batch_size, LOSS_SIZE, HORIZON_LENGTH, len(QUANTILES)))
+    # result = tf.reshape(result, (batch_size, LOSS_SIZE, HORIZON_LENGTH, len(QUANTILES)))
 
-    result = tf.cond(should_reduce_mean, lambda: tf.reduce_mean(result, axis=reduce_mean_axes), lambda: result)
-    result = tf.cond(should_reduce_sum, lambda: tf.reduce_sum(result, axis=reduce_sum_axes), lambda: result)
+    # result = tf.cond(should_reduce_mean, lambda: tf.reduce_mean(result, axis=reduce_mean_axes), lambda: result)
+    # result = tf.cond(should_reduce_sum, lambda: tf.reduce_sum(result, axis=reduce_sum_axes), lambda: result)
+
+    result = tf.reduce_mean(result, axis=(-3, -2, -1))
+
+    # result = tf.multiply(result, sample_weight) FIXME uncomment?
+    # result = tf.reduce_sum(result)
+
+    # return tf.divide(result, tf.constant(12.0))
     return result
+    # return tf.multiply(result, tf.cast(batch_size, DTYPE))
 
 
 class PinballMetric(Metric):
-    def __init__(self, name='pinball_metric', **kwargs):
+    def __init__(self,  name='pinball_metric', **kwargs):
         super(PinballMetric, self).__init__(name=name, **kwargs)
         self.sum = self.add_weight(name='pinball_sum', initializer='zeros', dtype=DTYPE)
         self.count = self.add_weight(name='num_samples', initializer='zeros', dtype=tf.int32)
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        values = pinball(y_true, y_pred)
-        if sample_weight is not None:
-            sample_weight = tf.cast(sample_weight, self.dtype)
-            sample_weight = tf.broadcast_weights(sample_weight, values)
-            values = tf.multiply(values, sample_weight)
+    def update_state(self, y_true, y_pred): # SAMPLE WEIGHTS DON'T WORK
+        values = pinball(y_true[:,-1], y_pred[:,-1])
+
+        # if sample_weight is not None: # FIXME never take this branch
+        #     sample_weight = tf.cast(sample_weight, self.dtype)
+        #     # sample_weight = tf.broadcast_weights(sample_weight, values)
+        #     values = tf.multiply(values, sample_weight)
+
         self.sum.assign_add(tf.reduce_sum(values))
         self.count.assign_add(tf.shape(values)[0])
 
