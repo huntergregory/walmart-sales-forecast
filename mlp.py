@@ -3,6 +3,7 @@ from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import GlorotUniform
 
+# TODO? add dropout?
 class MLP(Model):
     __seed = 1
 
