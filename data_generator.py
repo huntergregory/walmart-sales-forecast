@@ -12,9 +12,6 @@ from constants import LOSS_SIZE, QUANTILES, HORIZON_LENGTH, MAX_SERIES_LENGTH, S
 with open(FIRST_DAY_FILE, 'rb') as file:
     first_sale_days = pickle.load(file)
 
-with open(SELL_PRICE_INDICES_FILE, 'rb') as file:
-    item_price_indices = pickle.load(file) # length of 3,049
-
 sell_price_df = pd.read_csv(SELL_PRICES_DATA_PATH)
 
 sample_weights = np.array(pd.read_csv(WEIGHTS_PATH).spl_scaled_weight)
@@ -57,6 +54,12 @@ class TimeSeriesSequence(Sequence):
 
         tiled_static_features = np.tile(self.static_features[batch_indices], (1, MAX_SERIES_LENGTH + HORIZON_LENGTH, 1))
         tiled_day_labels = self.tiled_day_labels[:actual_size]
+
+        for k in range(actual_size):
+            first_sale_day = first_sale_days[k+idx*self.batch_size]
+            for j in range(first_sale_day):
+                tiled_static_features[k, j, :] = 0
+                tiled_day_labels[k, j, :] = 0
 
         features_concats = [
             tiled_day_labels[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)], 
