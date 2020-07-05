@@ -56,28 +56,7 @@ class TimeSeriesSequence(Sequence):
         tiled_static_features = np.tile(self.static_features[start:end], (1, MAX_SERIES_LENGTH + HORIZON_LENGTH, 1))
         tiled_day_labels = self.tiled_day_labels[:actual_size]
 
-        # prices = np.zeros((actual_size, MAX_SERIES_LENGTH + HORIZON_LENGTH))
-        # for k in range(actual_size):
-        #     first_sale_day = first_sale_days[k+idx*self.batch_size]
-        #     for j in range(first_sale_day):
-        #         tiled_static_features[k, j, :] = 0
-        #         tiled_day_labels[k, j, :] = 0
-
-        #     item_store_id = self.item_store_ids[start+k]
-        #     price_start_idx, price_stop_idx = item_price_indices[item_store_id]
-        #     sell_prices = sell_price_df.sell_price.iloc[price_start_idx:price_stop_idx]
-        #     start_day = (sell_price_df.wm_yr_wk.iloc[price_start_idx] - FIRST_WEEK) * 7
-        #     for j in range(len(sell_prices) - 1):
-        #         week_beginning = start_day + 7*j
-        #         week_length = 7 if j != 0 else 7 - (first_sale_day - week_beginning)
-        #         week_beginning = max(week_beginning, first_sale_day)
-        #         prices[k, week_beginning:(week_beginning + week_length)] = sell_prices.iloc[j]
-        #     prices[k,-2] = sell_prices.iloc[len(sell_prices)-2]
-        #     prices[k,-1] = sell_prices.iloc[len(sell_prices)-1] # all weeks have 7 days except last (2 days)
-        # prices = np.reshape(prices, prices.shape + (1,))
-
         features_concats = [
-            # prices[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)],
             tiled_day_labels[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)], 
             tiled_static_features[:, :(MAX_SERIES_LENGTH + HORIZON_LENGTH)]
         ]
