@@ -19,19 +19,6 @@ from custom_model import CustomModel
 
 from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH, INCLUDE_VALIDATION_METRIC
 
-"""
-FINAL TODO's
-
-write a TODO for masking for last H observations
-
-move all data stuff out of here, make this model a function
-- TIME_OBSERVATION_DIMENSION as required input
-- data_sequence as required input
-- all model constants as input??
-
-remove all these todo comments
-"""
-
 ## RUNTIME CONSTANTS
 TESTING = True # UPDATE!!
 PREDICT_FROM_SAVED_WEIGHTS = False
@@ -133,9 +120,7 @@ for k in range(HORIZON_LENGTH):
 all_local_decodings = tf.stack([local_decoder(forecast_input) for forecast_input in forecast_inputs])
 all_local_decodings = tf.transpose(all_local_decodings, perm=[1, 2, 0, 3])
 
-# TODO eventually subtract only 1, remove 2nd size, and mask those in between end and end - HORIZON_LENGTH
-# update loss and model.fit() input when that happens too
-if HORIZON_LENGTH > 1: # TODO replace with just [MAX_SERIES_LENGTH - 1, 1]
+if HORIZON_LENGTH > 1:
     decoding_split_sizes = [LOSS_SIZE, HORIZON_LENGTH-1, 1]
 else:
     decoding_split_sizes = [LOSS_SIZE, 1]

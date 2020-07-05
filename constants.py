@@ -7,7 +7,8 @@ INCLUDE_VALIDATION_METRIC = True
 MAX_SERIES_LENGTH = 1941
 if INCLUDE_VALIDATION_METRIC:
     MAX_SERIES_LENGTH -= HORIZON_LENGTH
-LOSS_SIZE = MAX_SERIES_LENGTH - HORIZON_LENGTH
+LOSS_SIZE = MAX_SERIES_LENGTH - HORIZON_LENGTH 
+# TODO make MAX_SERIES_LENGTH - 1 and mask the last HORIZON_LENGTH-1 predictions accordingly in loss function (update mq-rnn split layer too)
 
 ALL_FEATURES_DATA_PATH = './data/aggregate_features.csv'
 AGGREGATE_EVALUATION_SALES_PATH = './data/aggregate_sales_train_evaluation.csv'
