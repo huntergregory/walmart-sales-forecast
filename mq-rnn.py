@@ -1,55 +1,70 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
+from pathlib import Path
 
-from time import time
+# from time import time
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Concatenate, Dense, Dropout, Input, Lambda, LSTM
 from tensorflow.keras.models import Model
 from tensorflow.keras.initializers import GlorotUniform, Orthogonal
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+
+from mlp import MLP
+from pinball import PinballLoss, PinballMetric
+from data_generator import TimeSeriesSequence
+from custom_model import CustomModel
 
 from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH
 
-from mlp import MLP
-from pinball import PinballLoss
-from data_generator import TimeSeriesSequence
-
 """
-TODO PINBALL LOSS
-- look at histogram of sales for all item-level stuff
-    - if similar, leave pinball as is
-    - eventually add scaling
-    - eventually add masking for last H observations
-TODO
-- normalize each sample (individually)?
--  hierarchy
-- speed
+FINAL TODO's
+
+GIT
+remove unnecessary stuff
+just have mq-rnn, pinball, custom_model, data_generator
+
+write a TODO for masking for last H observations
+
+move all data stuff out of here, make this model a function
+- TIME_OBSERVATION_DIMENSION as required input
+- data_sequence as required input
+- all model constants as input??
+
+remove all these todo comments
 """
 
-## CONSTANTS
-TESTING = True # UPDATE!!!!
-PREDS_SAVE_FILE = "test-forecasts.csv" ### UPDATE!!!!
-MODEL_SAVE_FILE = 'models/model1' ### UPDATE!!!
+## RUNTIME CONSTANTS
+TESTING = True # UPDATE!!
+PREDICT_FROM_SAVED_WEIGHTS = False
+MODEL_FOLDER = './models/model1/' # UPDATE!!
+MODEL_WEIGHTS_FILE = MODEL_FOLDER + 'weights.02' # UPDATE!! if PREDICT_FROM_SAVED_WEIGHTS is True
+
+PREDICTION_FILE = MODEL_FOLDER + 'test-forecasts.csv'
+if not PREDICT_FROM_SAVED_WEIGHTS:
+    Path(MODEL_FOLDER).mkdir(parents=True, exist_ok=False)
+    MODEL_WEIGHTS_FILE_FORMAT = MODEL_FOLDER + 'weights.{epoch:02d}'
+
+## MODEL CONSTANTS
+EPOCHS = 25 if not TESTING else 2
+BATCH_SIZE = 32
+NUM_OBSERVATIONS = 64 # for testing
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
-RNN_UNITS = 128
+RNN_UNITS = 64
 GLOBAL_OUTPUT_SIZE = TIME_AGNOSTIC_CONTEXT_SIZE + HORIZON_LENGTH * TEMPORAL_CONTEXT_SIZE
-GLOBAL_DECODER_SHAPES = (64, GLOBAL_OUTPUT_SIZE)
-LOCAL_DECODER_SHAPES = (64, len(QUANTILES))
+GLOBAL_DECODER_SHAPES = (100, GLOBAL_OUTPUT_SIZE)
+LOCAL_DECODER_SHAPES = (32, len(QUANTILES))
 
-EPOCHS = 1 if TESTING else 20
-BATCH_SIZE = 32
-VAL_SPLIT = 0.2
 FIT_VERBOSITY = 2
 PREDICT_VERBOSITY = 1 if TESTING else 0
-NUM_OBSERVATIONS = 64 # for testing
 
 ## LOAD DATA
-FEATURES = ['department', 'category', 'store', 'state'] # 'item', 'department'
+FEATURES = ['department', 'category', 'store', 'state'] # 'item'
+'./models/model-final-light/test-forecasts.csv'
 
 sales_df = pd.read_csv(AGGREGATE_EVALUATION_SALES_PATH)
 aggregate_features_df = pd.read_csv(ALL_FEATURES_DATA_PATH).loc[:, FEATURES]
@@ -64,12 +79,10 @@ train_sales_columns = sales_df.columns[2:]
 x_train = sales_df.loc[:, train_sales_columns].to_numpy()
 
 # DATA DEPENDENT CONSTANTS
-# assert(MAX_SERIES_LENGTH == len(sales_df.columns) - 6)
 NUM_STATIC_FEATURES = one_hot_features.shape[1]
 NUM_DAY_LABELS = 6 + 3 # includes snap days
 calendar_map = {'National': 2, 'Religious': 3, 'Cultural': 4, 'Sporting': 5} # NaN is 0, Xmas is 1
-TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # TODO add 1 for price 
-# MQ-RNN has static features in each time step
+TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # TODO add 1 for price
 
 calendar = pd.read_csv(CALENDAR_DATA_PATH)
 binary_day_labels = np.zeros((len(calendar), NUM_DAY_LABELS-3))
@@ -89,9 +102,7 @@ for k in range(len(calendar)):
 
 binary_day_labels = np.concatenate([binary_day_labels, np.array(calendar.loc[:, ['snap_CA', 'snap_TX', 'snap_WI']])], axis=-1)
 
-data_sequence = TimeSeriesSequence(x_train, one_hot_features, binary_day_labels, BATCH_SIZE, use_weights=True)
-
-
+data_sequence = TimeSeriesSequence(x_train, one_hot_features, binary_day_labels, BATCH_SIZE)
 
 ## MODEL
 K.clear_session()
@@ -99,17 +110,14 @@ tf.random.set_seed(0)
 
 _input_series = Input(shape=(MAX_SERIES_LENGTH, TIME_OBSERVATION_DIMENSION), dtype=DTYPE, name='time_series')
 _input_pred_features = Input(shape=(MAX_SERIES_LENGTH, HORIZON_LENGTH, TIME_OBSERVATION_DIMENSION-1), dtype=DTYPE, name='predict_features')
-# _input_val_forecasts = Input(shape=(HORIZON_LENGTH, len(QUANTILES)), name='input_val_forecasts')
-# _input_eval_time_features = Input(shape=(HORIZON_LENGTH, TIME_OBSERVATION_DIMENSION-1), dtype=DTYPE, name='forecast_info') TODO INCLUDE
+# TODO sample normalization?
 
 rnn_model = LSTM(RNN_UNITS, return_sequences=True, kernel_initializer=GlorotUniform(seed=1), recurrent_initializer=Orthogonal(seed=2))
 full_rnn_outputs = rnn_model(_input_series) # output shape: (batch_size, timesteps, units)
-# TODO? pass state to MLP decoders? make stateful=True for the rnn_model
 
 MLP.set_next_seed(3)
 global_decoder = MLP(layer_shapes=GLOBAL_DECODER_SHAPES, name='global_decoder')
-local_decoder = MLP(layer_shapes=LOCAL_DECODER_SHAPES, name='local_decoder') 
-# TODO? Dropout(0.15)(final)
+local_decoder = MLP(layer_shapes=LOCAL_DECODER_SHAPES, name='local_decoder')
 
 all_global_decodings = global_decoder(full_rnn_outputs)
 
@@ -124,8 +132,6 @@ for k in range(HORIZON_LENGTH):
     forecast_input = Concatenate(name=concat_name)([time_agnostic_context, all_context[k+1], features])
     forecast_inputs.append(forecast_input)
 
-# forecast_input = tf.stack(forecast_inputs, name='forecast_input_stack')
-# all_local_decodings = local_decoder(forecast_inputs)
 all_local_decodings = tf.stack([local_decoder(forecast_input) for forecast_input in forecast_inputs])
 all_local_decodings = tf.transpose(all_local_decodings, perm=[1, 2, 0, 3])
 
@@ -140,42 +146,37 @@ train_forecasts, _, quantile_forecasts = tf.split(all_local_decodings, num_or_si
 train_forecasts = Lambda(lambda x: x, name='train_forecasts')(train_forecasts)
 quantile_forecasts = Lambda(lambda x: x, name='quantile_forecasts')(quantile_forecasts)
 
-model = Model(inputs=[_input_series, _input_pred_features], outputs=[quantile_forecasts, train_forecasts])
+model = CustomModel(inputs=[_input_series, _input_pred_features], outputs=[quantile_forecasts, train_forecasts])
 model.compile(loss={'train_forecasts': PinballLoss()}, 
-              optimizer='adam',)
-            #   metrics={'train_forecasts': PinballMetric()})
-# model.summary(positions=[50, 110, 120, 170])
+              optimizer='adam',
+              metrics={'quantile_forecasts': PinballMetric()}) # keras Model doesn't use sample weighting for metrics
+
+model.summary(positions=[50, 110, 120, 170])
 # with open('model-summary.txt', 'w') as file:
-    # model.summary(print_fn=lambda x: file.write(x + '\n'))
+#     model.summary(print_fn=lambda x: file.write(x + '\n'))
 
 ## TRAIN
-history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY,
-                    callbacks=[EarlyStopping(monitor='loss', patience=3, restore_best_weights=True)])  #TODO validation set
-                    # free_memory()])
+def print_dictionary(d):
+    for key, lst in d.items():
+        print('{}: {}'.format(key, lst))
 
-print('done')
+if not PREDICT_FROM_SAVED_WEIGHTS:
+    history = model.fit(data_sequence, epochs=EPOCHS, verbose=FIT_VERBOSITY,
+                        callbacks=[
+                            EarlyStopping(monitor='loss', patience=3, restore_best_weights=True),
+                            ModelCheckpoint(MODEL_WEIGHTS_FILE_FORMAT, monitor='loss', save_best_only=True, save_weights_only=True, verbose=1),
+                        ])
+    print('finished training with history: ')
+    print_dictionary(history.history)
+else:
+    model.load_weights(MODEL_WEIGHTS_FILE)
+    print('finished loading weights')
 
-model.save(MODEL_SAVE_FILE)
-# loaded_model = tf.keras.models.load_model(MODEL_SAVE_FILE, compile=False)
+## PREDICT
+quantile_forecasts = model.predict(data_sequence, verbose=PREDICT_VERBOSITY)
+print('finished predicting')
+np.savetxt(PREDICTION_FILE, np.reshape(quantile_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
 
-test_forecasts, _ = model.predict(data_sequence, verbose=PREDICT_VERBOSITY)
-print('all done')
-
-np.savetxt(PREDS_SAVE_FILE, np.reshape(test_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
-
-loaded_test_forecasts = np.loadtxt(PREDS_SAVE_FILE, delimiter=',')
-loaded_test_forecasts = np.reshape(loaded_test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
-
-print(np.all(loaded_test_forecasts == np.reshape(test_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))))
-
-print('ok')
-
-
-## OTHER STUFF
-# model.predict([response,context,df_features])
-#             df1out, df2out = Lambda(lambda x: tf.split(x,num_or_size_splits=2,axis=0))(finalsig)   
-#             self.model.compile(loss=['binary_crossentropy','binary_crossentropy'],
-#                             optimizer='adam',  metrics=[F1Macro(), 'accuracy'], loss_weights = [1, 1/p])
-
-# def print_MB(array):
-#     print('{} MB'.format(array.size * array.itemsize / 1024 / 1024))
+## How to Load Prediction File
+# loaded_quantile_forecasts = np.loadtxt(PREDICTION_FILE, delimiter=',')
+# loaded_quantile_forecasts = np.reshape(loaded_quantile_forecasts, (-1, HORIZON_LENGTH, len(QUANTILES)))
