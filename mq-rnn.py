@@ -17,14 +17,10 @@ from pinball import PinballLoss, PinballMetric
 from data_generator import TimeSeriesSequence
 from custom_model import CustomModel
 
-from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH
+from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH, INCLUDE_VALIDATION_METRIC
 
 """
 FINAL TODO's
-
-GIT
-remove unnecessary stuff
-just have mq-rnn, pinball, custom_model, data_generator
 
 write a TODO for masking for last H observations
 
@@ -50,7 +46,7 @@ if not PREDICT_FROM_SAVED_WEIGHTS:
 ## MODEL CONSTANTS
 EPOCHS = 25 if not TESTING else 2
 BATCH_SIZE = 32
-NUM_OBSERVATIONS = 64 # for testing
+NUM_OBSERVATIONS = 40 # for testing
 
 TEMPORAL_CONTEXT_SIZE = 2 * len(QUANTILES)
 TIME_AGNOSTIC_CONTEXT_SIZE = 10
@@ -58,6 +54,8 @@ RNN_UNITS = 64
 GLOBAL_OUTPUT_SIZE = TIME_AGNOSTIC_CONTEXT_SIZE + HORIZON_LENGTH * TEMPORAL_CONTEXT_SIZE
 GLOBAL_DECODER_SHAPES = (100, GLOBAL_OUTPUT_SIZE)
 LOCAL_DECODER_SHAPES = (32, len(QUANTILES))
+
+OPTIMIZER = 'adam'
 
 FIT_VERBOSITY = 2
 PREDICT_VERBOSITY = 1 if TESTING else 0
@@ -82,7 +80,7 @@ x_train = sales_df.loc[:, train_sales_columns].to_numpy()
 NUM_STATIC_FEATURES = one_hot_features.shape[1]
 NUM_DAY_LABELS = 6 + 3 # includes snap days
 calendar_map = {'National': 2, 'Religious': 3, 'Cultural': 4, 'Sporting': 5} # NaN is 0, Xmas is 1
-TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # TODO add 1 for price
+TIME_OBSERVATION_DIMENSION = NUM_STATIC_FEATURES + NUM_DAY_LABELS + 1 # TODO eventually add 1 for price
 
 calendar = pd.read_csv(CALENDAR_DATA_PATH)
 binary_day_labels = np.zeros((len(calendar), NUM_DAY_LABELS-3))
@@ -147,9 +145,8 @@ train_forecasts = Lambda(lambda x: x, name='train_forecasts')(train_forecasts)
 quantile_forecasts = Lambda(lambda x: x, name='quantile_forecasts')(quantile_forecasts)
 
 model = CustomModel(inputs=[_input_series, _input_pred_features], outputs=[quantile_forecasts, train_forecasts])
-model.compile(loss={'train_forecasts': PinballLoss()}, 
-              optimizer='adam',
-              metrics={'quantile_forecasts': PinballMetric()}) # keras Model doesn't use sample weighting for metrics
+metrics = {'quantile_forecasts': PinballMetric()} if INCLUDE_VALIDATION_METRIC else None
+model.compile(loss={'train_forecasts': PinballLoss()}, optimizer=OPTIMIZER, metrics=metrics) # keras Model doesn't use sample weighting for metrics
 
 model.summary(positions=[50, 110, 120, 170])
 # with open('model-summary.txt', 'w') as file:

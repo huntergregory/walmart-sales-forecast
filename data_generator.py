@@ -6,13 +6,10 @@ from random import shuffle, seed
 from tensorflow.keras.utils import Sequence
 
 
-from constants import LOSS_SIZE, QUANTILES, HORIZON_LENGTH, MAX_SERIES_LENGTH, SELL_PRICES_DATA_PATH, FIRST_DAY_FILE, SELL_PRICE_INDICES_FILE, FIRST_WEEK, WEIGHTS_PATH
-# from tqdm import tqdm
+from constants import LOSS_SIZE, QUANTILES, HORIZON_LENGTH, MAX_SERIES_LENGTH, FIRST_DAY_FILE, FIRST_WEEK, WEIGHTS_PATH, INCLUDE_VALIDATION_METRIC
 
 with open(FIRST_DAY_FILE, 'rb') as file:
     first_sale_days = pickle.load(file)
-
-sell_price_df = pd.read_csv(SELL_PRICES_DATA_PATH)
 
 sample_weights = np.array(pd.read_csv(WEIGHTS_PATH).spl_scaled_weight)
 
@@ -73,8 +70,9 @@ class TimeSeriesSequence(Sequence):
         x_batch = np.concatenate(x_batch_concats, axis=-1)
 
         y_batch = np.zeros((actual_size, LOSS_SIZE, HORIZON_LENGTH, len(QUANTILES)))
-        val_y_batch = np.zeros((actual_size, 1, HORIZON_LENGTH, len(QUANTILES)))
         pred_features = np.zeros((actual_size, MAX_SERIES_LENGTH, HORIZON_LENGTH, features.shape[-1]))
+        if INCLUDE_VALIDATION_METRIC:
+            val_y_batch = np.zeros((actual_size, 1, HORIZON_LENGTH, len(QUANTILES)))
         for i in range(actual_size):
             feature_series = features[i]
 
@@ -86,14 +84,17 @@ class TimeSeriesSequence(Sequence):
                     pred_features[i,j-1,k,:] = feature_series[j+k]
                     if should_expand:
                         y_batch[i,j-1,k,:] = self.time_series[i,j+k]
-                    if is_val_point:
+                    if is_val_point and INCLUDE_VALIDATION_METRIC:
                         val_y_batch[i,0,k,:] = self.time_series[i,j+k]
         # runtime now: 4, 4.1, 4.4, 4.5
         # with lists: 7.7, 7.1
 
+        y_dict = {'train_forecasts': y_batch}
+        if INCLUDE_VALIDATION_METRIC:
+            y_dict['quantile_forecasts'] = val_y_batch
         full_batch = (
             {'time_series': x_batch, 'predict_features': pred_features},
-            {'train_forecasts': y_batch, 'quantile_forecasts': val_y_batch}
+            y_dict,
         )
         if self.use_weights:
             return full_batch + (sample_weights[batch_indices],)
