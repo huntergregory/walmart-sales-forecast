@@ -19,8 +19,8 @@ from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_
 
 """
 TODO
-Eventually make this file into a function with hyperparameters and filenames passed as parameters...
-Right now just have to duplicate the file and update runtime constants and model constants
+Eventually make the model into a function with hyperparameters and filenames passed as parameters.
+Right now just have to duplicate this file and update runtime constants and model constants.
 """
 
 ## RUNTIME CONSTANTS
@@ -159,6 +159,7 @@ else:
     print('finished loading weights')
 
 ## PREDICT
+data_sequence = TimeSeriesSequence(x_train, one_hot_features, binary_day_labels, BATCH_SIZE, should_shuffle=False)
 quantile_forecasts = model.predict(data_sequence, verbose=PREDICT_VERBOSITY)
 print('finished predicting')
 np.savetxt(PREDICTION_FILE, np.reshape(quantile_forecasts, (-1, HORIZON_LENGTH * len(QUANTILES))), delimiter=',')
