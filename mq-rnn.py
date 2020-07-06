@@ -3,8 +3,6 @@ import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
 from pathlib import Path
 
-# from time import time
-
 import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Concatenate, Dense, Dropout, Input, Lambda, LSTM
@@ -18,6 +16,12 @@ from data_generator import TimeSeriesSequence
 from custom_model import CustomModel
 
 from constants import DTYPE, HORIZON_LENGTH, QUANTILES, MAX_SERIES_LENGTH, LOSS_SIZE, AGGREGATE_EVALUATION_SALES_PATH, ALL_FEATURES_DATA_PATH, CALENDAR_DATA_PATH, INCLUDE_VALIDATION_METRIC
+
+"""
+TODO
+Eventually make this file into a function with hyperparameters and filenames passed as parameters...
+Right now just have to duplicate the file and update runtime constants and model constants
+"""
 
 ## RUNTIME CONSTANTS
 TESTING = True # UPDATE!!
